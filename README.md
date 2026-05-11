@@ -7,7 +7,7 @@
 
 MCP (Model Context Protocol) server for the Vitally REST API. Fork of [`fiscaltec/vitally-mcp`](https://github.com/fiscaltec/vitally-mcp) — adds full account payloads on every account-returning tool, workspace-level list endpoints, `update_account`, cursor pagination, and `aggregate_accounts`.
 
-**Image:** `ghcr.io/wiseair-srl/vitally-mcp:latest` (also tagged `v2`, `v2.1`, `v2.1.0`).
+**Image:** `ghcr.io/wiseair-srl/vitally-mcp:latest` (also tagged `v2`, `v2.3`, `v2.3.0`).
 
 ## Quick start (Docker)
 
