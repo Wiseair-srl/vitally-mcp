@@ -582,13 +582,31 @@ function mockApiResponse<T>(endpoint: string, method = "GET", body?: unknown): T
   }
 
   if (pathOnly === "/resources/notes" && method === "POST") {
-    const noteBody = (body || {}) as { accountId?: string; note?: string; noteDate?: string };
+    const noteBody = (body || {}) as {
+      accountId?: string;
+      organizationId?: string;
+      note?: string;
+      noteDate?: string;
+      subject?: string;
+      authorId?: string;
+      categoryId?: string;
+      externalId?: string;
+      tags?: string[];
+      traits?: Record<string, unknown>;
+    };
     const now = new Date().toISOString();
     return {
       id: "n-mock-" + Date.now(),
       note: noteBody.note,
       noteDate: noteBody.noteDate ?? now,
       accountId: noteBody.accountId,
+      organizationId: noteBody.organizationId,
+      subject: noteBody.subject,
+      authorId: noteBody.authorId,
+      categoryId: noteBody.categoryId,
+      externalId: noteBody.externalId,
+      tags: noteBody.tags,
+      traits: noteBody.traits,
       createdAt: now,
       updatedAt: now,
     } as unknown as T;
@@ -1203,18 +1221,25 @@ const TOOL_DEFINITIONS: ToolDef[] = [
   {
     name: "create_account_note",
     description:
-      "Create a new note on an account. Calls POST /resources/notes. The note body must go in `note` (not `content`). `noteDate` defaults to now if omitted.",
+      "Create a new note. Calls POST /resources/notes. The note body must go in `note` (not `content`). `subject` is the note title. `noteDate` defaults to now if omitted. Either `accountId` or `organizationId` is required.",
     inputSchema: {
       type: "object",
       properties: {
-        accountId: { type: "string", description: "Vitally account ID." },
+        accountId: { type: "string", description: "Vitally account ID. Required unless organizationId is set." },
+        organizationId: { type: "string", description: "Vitally organization ID. Required unless accountId is set." },
         note: { type: "string", description: "Note body (plain text or HTML)." },
         noteDate: {
           type: "string",
           description: "ISO 8601 timestamp for the note. Defaults to now if omitted.",
         },
+        subject: { type: "string", description: "Note subject / title." },
+        authorId: { type: "string", description: "Vitally Admin User ID of the note author." },
+        categoryId: { type: "string", description: "Vitally ID of the Note Category." },
+        externalId: { type: "string", description: "Unique ID of the note in your system." },
+        tags: { type: "array", items: { type: "string" }, description: "Tags to attach to the note." },
+        traits: { type: "object", description: "Custom trait key/value pairs." },
       },
-      required: ["accountId", "note"],
+      required: ["note"],
     },
   },
   {
@@ -1737,14 +1762,21 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     case "create_account_note": {
       const accountId = args.accountId as string | undefined;
+      const organizationId = args.organizationId as string | undefined;
       const note = args.note as string | undefined;
       const noteDate = (args.noteDate as string | undefined) ?? new Date().toISOString();
-      if (!accountId || !note) throw new Error("accountId and note are required");
-      const created = await callVitallyAPI<VitallyNote>(
-        "/resources/notes",
-        "POST",
-        { accountId, note, noteDate }
-      );
+      if (!note) throw new Error("note is required");
+      if (!accountId && !organizationId) {
+        throw new Error("either accountId or organizationId is required");
+      }
+      const body: Record<string, unknown> = { note, noteDate };
+      if (accountId) body.accountId = accountId;
+      if (organizationId) body.organizationId = organizationId;
+      for (const k of ["subject", "authorId", "categoryId", "externalId", "tags", "traits"] as const) {
+        const v = args[k];
+        if (v !== undefined) body[k] = v;
+      }
+      const created = await callVitallyAPI<VitallyNote>("/resources/notes", "POST", body);
       return jsonContent({ success: true, note: created });
     }
 
