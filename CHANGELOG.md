@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.3.0 — 2026-05-11
+
+### Added
+- **`create_task`** — wraps `POST /resources/tasks`. Required: `name` + one of `accountId` / `organizationId`. Optional: `description`, `assignedToId`, `dueDate`, `categoryId`, `externalId`, `tags`, `traits`. Field names match Vitally's REST schema (`name`, not `title`; `assignedToId`, not `assigneeId`).
+- **`create_account_note`** now accepts the full `POST /resources/notes` schema: `subject` (note title), `organizationId`, `authorId`, `categoryId`, `externalId`, `tags`, `traits`. `accountId` is optional when `organizationId` is set (one of the two is still required).
+- Server `name` advertised over MCP bumped to `vitally-api` v2.3.0.
+
 ## v2.2.0 — 2026-05-11
 
 ### Fixed
