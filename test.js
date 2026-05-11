@@ -447,6 +447,8 @@ async function main() {
     const created = await callTool(ctx, "create_account_note", {
       accountId: "4",
       note: "Test diagnostic note",
+      subject: "QA subject",
+      tags: ["qa", "smoke"],
     });
     check(
       "create_account_note returns success with note.id",
@@ -463,11 +465,26 @@ async function main() {
       typeof created?.note?.noteDate === "string" && !Number.isNaN(Date.parse(created.note.noteDate)),
       created?.note?.noteDate
     );
+    check(
+      "created note round-trips `subject`",
+      created?.note?.subject === "QA subject",
+      created?.note?.subject
+    );
+    check(
+      "created note round-trips `tags`",
+      Array.isArray(created?.note?.tags) && created.note.tags.join(",") === "qa,smoke",
+      JSON.stringify(created?.note?.tags)
+    );
 
     await expectThrow(
       callTool(ctx, "create_account_note", { accountId: "4" }),
       "create_account_note requires `note` parameter",
       /note/i
+    );
+    await expectThrow(
+      callTool(ctx, "create_account_note", { note: "orphan" }),
+      "create_account_note requires accountId or organizationId",
+      /accountId|organizationId/i
     );
   }
 
