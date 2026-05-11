@@ -641,6 +641,31 @@ function mockApiResponse<T>(endpoint: string, method = "GET", body?: unknown): T
     return { results: MOCK_TASKS, next: null } as unknown as T;
   }
 
+  if (pathOnly === "/resources/tasks" && method === "POST") {
+    const taskBody = (body || {}) as {
+      name?: string;
+      accountId?: string;
+      organizationId?: string;
+      description?: string;
+      assignedToId?: string;
+      dueDate?: string;
+    };
+    const now = new Date().toISOString();
+    return {
+      id: "t-mock-" + Date.now(),
+      title: taskBody.name,
+      description: taskBody.description,
+      accountId: taskBody.accountId,
+      dueDate: taskBody.dueDate,
+      assignedToId: taskBody.assignedToId,
+      organizationId: taskBody.organizationId,
+      completedAt: null,
+      archivedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    } as unknown as T;
+  }
+
   if (pathOnly === "/resources/conversations" && method === "GET") {
     return {
       results: [
@@ -1157,6 +1182,27 @@ const TOOL_DEFINITIONS: ToolDef[] = [
           enum: ["plain", "html"],
         },
       },
+    },
+  },
+  {
+    name: "create_task",
+    description:
+      "Create a new task. Calls POST /resources/tasks. Required: `name` plus either `accountId` or `organizationId`. `description` may include HTML. `assignedToId` is a Vitally Admin User ID; use `search_users` to look one up.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Task name / subject. Required." },
+        accountId: { type: "string", description: "Vitally account ID. Required unless organizationId is set." },
+        organizationId: { type: "string", description: "Vitally organization ID. Required unless accountId is set." },
+        description: { type: "string", description: "Task description (plain text or HTML)." },
+        assignedToId: { type: "string", description: "Vitally Admin User ID of the assignee." },
+        dueDate: { type: "string", description: "ISO 8601 date when the task is due." },
+        categoryId: { type: "string", description: "Vitally ID of the Task Category." },
+        externalId: { type: "string", description: "Unique ID of the task in your system." },
+        tags: { type: "array", items: { type: "string" }, description: "Tags to attach to the task." },
+        traits: { type: "object", description: "Custom trait key/value pairs." },
+      },
+      required: ["name"],
     },
   },
   {
@@ -1712,6 +1758,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           .map(t => stripAccountField(t, includeAccount)),
         next: data.next,
       });
+    }
+
+    case "create_task": {
+      const taskName = args.name as string | undefined;
+      const accountId = args.accountId as string | undefined;
+      const organizationId = args.organizationId as string | undefined;
+      if (!taskName) throw new Error("name is required");
+      if (!accountId && !organizationId) {
+        throw new Error("either accountId or organizationId is required");
+      }
+      const body: Record<string, unknown> = { name: taskName };
+      if (accountId) body.accountId = accountId;
+      if (organizationId) body.organizationId = organizationId;
+      for (const k of ["description", "assignedToId", "dueDate", "categoryId", "externalId", "tags", "traits"] as const) {
+        const v = args[k];
+        if (v !== undefined) body[k] = v;
+      }
+      const created = await callVitallyAPI<VitallyTask>("/resources/tasks", "POST", body);
+      return jsonContent({ success: true, task: created });
     }
 
     case "get_account_notes": {

@@ -140,7 +140,7 @@ async function main() {
     "search_accounts", "find_account_by_name", "get_account", "list_accounts", "update_account",
     "aggregate_accounts",
     "get_account_health", "get_account_conversations", "list_conversations",
-    "get_account_tasks", "list_tasks",
+    "get_account_tasks", "list_tasks", "create_task",
     "get_account_notes", "list_notes", "get_note_by_id", "create_account_note",
     "list_projects", "get_project", "list_organizations", "refresh_accounts",
   ];
@@ -484,6 +484,35 @@ async function main() {
     await expectThrow(
       callTool(ctx, "create_account_note", { note: "orphan" }),
       "create_account_note requires accountId or organizationId",
+      /accountId|organizationId/i
+    );
+
+    console.log("\n== create_task: POST /resources/tasks ==");
+    const createdTask = await callTool(ctx, "create_task", {
+      accountId: "4",
+      name: "Test diagnostic task",
+      description: "<p>follow up</p>",
+      dueDate: "2026-06-01",
+    });
+    check(
+      "create_task returns success with task.id",
+      createdTask?.success === true && typeof createdTask?.task?.id === "string",
+      JSON.stringify(createdTask).slice(0, 200)
+    );
+    check(
+      "created task carries the `title` field echoed from `name`",
+      createdTask?.task?.title === "Test diagnostic task",
+      JSON.stringify(createdTask?.task).slice(0, 200)
+    );
+
+    await expectThrow(
+      callTool(ctx, "create_task", { accountId: "4" }),
+      "create_task requires `name`",
+      /name/i
+    );
+    await expectThrow(
+      callTool(ctx, "create_task", { name: "orphan task" }),
+      "create_task requires accountId or organizationId",
       /accountId|organizationId/i
     );
   }
