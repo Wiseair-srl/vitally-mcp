@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.4.0 — 2026-05-13
+
+### Added
+- **Schema-discovery tools** so callers can stop guessing trait keys and category IDs:
+  - **`list_custom_fields`** — `GET /resources/customFields?model=<model>`. Required `model` ∈ `users` | `accounts` | `organizations` | `customObjects` | `tasks` | `notes` | `projects` | `conversations` | `team`. Pass `customObjectId` when `model=customObjects`. Returns the array of `{ label, type, path, createdAt, options? }` trait definitions.
+  - **`list_custom_objects`** — `GET /resources/customObjects`. Paginated `{results, next}` of Custom Object schemas. Use to discover the `customObjectId` needed by `list_custom_fields`.
+  - **`list_task_categories`** — `GET /resources/taskCategories`. Paginated. Use to discover the `categoryId` accepted by `create_task`.
+  - **`list_note_categories`** — `GET /resources/noteCategories`. Paginated. Use to discover the `categoryId` accepted by `create_account_note`.
+- Demo-mode mocks for all four endpoints.
+- Server `name` advertised over MCP bumped to `vitally-api` v2.4.0.
+
 ## v2.3.0 — 2026-05-11
 
 ### Added

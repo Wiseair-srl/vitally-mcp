@@ -698,6 +698,57 @@ function mockApiResponse<T>(endpoint: string, method = "GET", body?: unknown): T
     } as unknown as T;
   }
 
+  if (pathOnly === "/resources/customFields" && method === "GET") {
+    const model = params.get("model") || "accounts";
+    return [
+      { label: "ARR", type: "number", path: "vitally.custom.arr", createdAt: "2026-01-01T00:00:00Z" },
+      { label: "ARR Tier", type: "string", path: "vitally.custom.arrTier", createdAt: "2026-01-01T00:00:00Z", options: ["Tier 1", "Tier 2", "Tier 3"] },
+      { label: "CSM Sentiment", type: "string", path: "vitally.custom.csmSentiment", createdAt: "2026-01-01T00:00:00Z", options: ["positive", "neutral", "negative"] },
+      { label: "Test Account", type: "boolean", path: "vitally.custom.testAccount", createdAt: "2026-01-01T00:00:00Z" },
+      { label: `Mock field for ${model}`, type: "string", path: `vitally.custom.mock_${model}`, createdAt: "2026-01-01T00:00:00Z" },
+    ] as unknown as T;
+  }
+
+  if (pathOnly === "/resources/customObjects" && method === "GET") {
+    return {
+      results: [
+        {
+          id: "co-1",
+          name: "subscription",
+          label: "Subscription",
+          syncActive: true,
+          writeMode: "writable",
+          customFields: [],
+          createdAt: "2026-01-01T00:00:00Z",
+          updatedAt: "2026-02-01T00:00:00Z",
+        },
+      ],
+      next: null,
+    } as unknown as T;
+  }
+
+  if (pathOnly === "/resources/taskCategories" && method === "GET") {
+    return {
+      results: [
+        { id: "tc-1", name: "Onboarding", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+        { id: "tc-2", name: "Renewal", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+        { id: "tc-3", name: "Support", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+      ],
+      next: null,
+    } as unknown as T;
+  }
+
+  if (pathOnly === "/resources/noteCategories" && method === "GET") {
+    return {
+      results: [
+        { id: "nc-1", name: "QBR", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+        { id: "nc-2", name: "Check-in", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+        { id: "nc-3", name: "Escalation", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
+      ],
+      next: null,
+    } as unknown as T;
+  }
+
   if (pathOnly.match(/^\/resources\/users\/[^/]+$/) && method === "GET" && pathOnly !== "/resources/users/search") {
     const id = pathOnly.split("/")[3];
     const user = MOCK_USERS.find(u => u.id === id || u.externalId === id);
@@ -1339,6 +1390,72 @@ const TOOL_DEFINITIONS: ToolDef[] = [
       },
     },
   },
+  {
+    name: "list_custom_fields",
+    description:
+      "Discover the custom trait definitions for a given data model. Calls GET /resources/customFields?model=<model>. Use to learn which trait `path` keys exist on accounts/users/etc. before reading or writing them. For model=customObjects, also pass `customObjectId` (use list_custom_objects to find it).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        model: {
+          type: "string",
+          enum: [
+            "users",
+            "accounts",
+            "organizations",
+            "customObjects",
+            "tasks",
+            "notes",
+            "projects",
+            "conversations",
+            "team",
+          ],
+          description: "Data model whose custom trait definitions you want to list.",
+        },
+        customObjectId: {
+          type: "string",
+          description: "Required only when model=customObjects. Vitally ID of the Custom Object schema.",
+        },
+      },
+      required: ["model"],
+    },
+  },
+  {
+    name: "list_custom_objects",
+    description:
+      "Paginated list of Custom Object schemas (definitions, not records) in the workspace. Calls GET /resources/customObjects. Use to discover Custom Object IDs needed by list_custom_fields with model=customObjects.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Page size, max 100, default 50." },
+        from: { type: "string", description: "Cursor token from the previous response's `next` field." },
+      },
+    },
+  },
+  {
+    name: "list_task_categories",
+    description:
+      "Paginated list of Task Categories. Calls GET /resources/taskCategories. Use to discover the `categoryId` values accepted by create_task.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Page size, max 100, default 50." },
+        from: { type: "string", description: "Cursor token from the previous response's `next` field." },
+      },
+    },
+  },
+  {
+    name: "list_note_categories",
+    description:
+      "Paginated list of Note Categories. Calls GET /resources/noteCategories. Use to discover the `categoryId` values accepted by create_account_note.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Page size, max 100, default 50." },
+        from: { type: "string", description: "Cursor token from the previous response's `next` field." },
+      },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1348,7 +1465,7 @@ const TOOL_DEFINITIONS: ToolDef[] = [
 const server = new Server(
   {
     name: "vitally-api",
-    version: "2.3.0",
+    version: "2.4.0",
   },
   {
     capabilities: {
@@ -1880,6 +1997,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         count: accountsCache.length,
         accounts: accountsCache.map(a => projectAccount(a, includeTraits)),
       });
+    }
+
+    case "list_custom_fields": {
+      const model = args.model as string | undefined;
+      const customObjectId = args.customObjectId as string | undefined;
+      const allowedModels = new Set([
+        "users",
+        "accounts",
+        "organizations",
+        "customObjects",
+        "tasks",
+        "notes",
+        "projects",
+        "conversations",
+        "team",
+      ]);
+      if (!model) throw new Error("model is required");
+      if (!allowedModels.has(model)) {
+        throw new Error(`Invalid model "${model}". Must be one of: ${[...allowedModels].join(", ")}`);
+      }
+      if (model === "customObjects" && !customObjectId) {
+        throw new Error("customObjectId is required when model=customObjects");
+      }
+      const data = await callVitallyAPI<unknown>(
+        `/resources/customFields${buildQuery({ model, customObjectId })}`
+      );
+      return jsonContent(data);
+    }
+
+    case "list_custom_objects": {
+      const limit = (args.limit as number | undefined) ?? 50;
+      const from = args.from as string | undefined;
+      const data = await paginate<Record<string, unknown>>("/resources/customObjects", { limit, from });
+      return jsonContent(data);
+    }
+
+    case "list_task_categories": {
+      const limit = (args.limit as number | undefined) ?? 50;
+      const from = args.from as string | undefined;
+      const data = await paginate<Record<string, unknown>>("/resources/taskCategories", { limit, from });
+      return jsonContent(data);
+    }
+
+    case "list_note_categories": {
+      const limit = (args.limit as number | undefined) ?? 50;
+      const from = args.from as string | undefined;
+      const data = await paginate<Record<string, unknown>>("/resources/noteCategories", { limit, from });
+      return jsonContent(data);
     }
 
     default:
