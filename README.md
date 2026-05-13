@@ -63,6 +63,8 @@ Without `VITALLY_API_KEY` (or with a placeholder value) the server runs in **dem
 
 **Users** — `search_users`, `get_user`.
 
+**Schema discovery** — `list_custom_fields` (custom trait definitions per model — required `model`, plus `customObjectId` when `model=customObjects`), `list_custom_objects` (Custom Object schemas), `list_task_categories`, `list_note_categories`. Use these to discover trait `path` keys and `categoryId` values before writing.
+
 ### Payload shaping
 
 Common params across account-returning tools:

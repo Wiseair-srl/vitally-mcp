@@ -143,6 +143,7 @@ async function main() {
     "get_account_tasks", "list_tasks", "create_task",
     "get_account_notes", "list_notes", "get_note_by_id", "create_account_note",
     "list_projects", "get_project", "list_organizations", "refresh_accounts",
+    "list_custom_fields", "list_custom_objects", "list_task_categories", "list_note_categories",
   ];
   for (const t of required) {
     check(`tool registered: ${t}`, toolNames.includes(t), `present: ${toolNames.join(", ")}`);
@@ -591,6 +592,86 @@ async function main() {
   console.log("\n== list_tasks ==");
   const tasks = await callTool(ctx, "list_tasks", { limit: 5 });
   check("list_tasks returns results array", Array.isArray(tasks.results), JSON.stringify(tasks).slice(0, 200));
+
+  // -------------------------------------------------------------------------
+  // Schema discovery: custom fields, custom objects, task & note categories
+  // -------------------------------------------------------------------------
+  console.log("\n== schema discovery ==");
+
+  await expectThrow(
+    callTool(ctx, "list_custom_fields", {}),
+    "list_custom_fields requires `model`",
+    /model/i
+  );
+  await expectThrow(
+    callTool(ctx, "list_custom_fields", { model: "bogus" }),
+    "list_custom_fields rejects invalid model",
+    /model|invalid/i
+  );
+  await expectThrow(
+    callTool(ctx, "list_custom_fields", { model: "customObjects" }),
+    "list_custom_fields requires customObjectId when model=customObjects",
+    /customObjectId/i
+  );
+
+  const accountFields = await callTool(ctx, "list_custom_fields", { model: "accounts" });
+  check(
+    "list_custom_fields(model=accounts) returns array",
+    Array.isArray(accountFields)
+  );
+  if (Array.isArray(accountFields) && accountFields.length > 0 && !useRealApi) {
+    const first = accountFields[0];
+    check(
+      "trait definition row has label+path+type",
+      typeof first.label === "string" && typeof first.path === "string" && typeof first.type === "string",
+      JSON.stringify(first)
+    );
+  }
+
+  if (!useRealApi) {
+    const coFields = await callTool(ctx, "list_custom_fields", { model: "customObjects", customObjectId: "co-1" });
+    check(
+      "list_custom_fields(model=customObjects, customObjectId) succeeds",
+      Array.isArray(coFields)
+    );
+  }
+
+  const customObjects = await callTool(ctx, "list_custom_objects", { limit: 5 });
+  check(
+    "list_custom_objects returns {results, next}",
+    Array.isArray(customObjects.results),
+    JSON.stringify(customObjects).slice(0, 200)
+  );
+
+  const taskCats = await callTool(ctx, "list_task_categories", { limit: 5 });
+  check(
+    "list_task_categories returns {results, next}",
+    Array.isArray(taskCats.results),
+    JSON.stringify(taskCats).slice(0, 200)
+  );
+  if (!useRealApi && Array.isArray(taskCats.results) && taskCats.results.length > 0) {
+    const row = taskCats.results[0];
+    check(
+      "task category row has id+name",
+      typeof row.id === "string" && typeof row.name === "string",
+      JSON.stringify(row)
+    );
+  }
+
+  const noteCats = await callTool(ctx, "list_note_categories", { limit: 5 });
+  check(
+    "list_note_categories returns {results, next}",
+    Array.isArray(noteCats.results),
+    JSON.stringify(noteCats).slice(0, 200)
+  );
+  if (!useRealApi && Array.isArray(noteCats.results) && noteCats.results.length > 0) {
+    const row = noteCats.results[0];
+    check(
+      "note category row has id+name",
+      typeof row.id === "string" && typeof row.name === "string",
+      JSON.stringify(row)
+    );
+  }
 
   ctx.child.kill();
 
