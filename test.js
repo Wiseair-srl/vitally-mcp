@@ -698,6 +698,29 @@ async function main() {
     warnCtx.child.kill();
   }
 
+  // -------------------------------------------------------------------------
+  // Multi-page account sync — separate process with tiny page size so the
+  // 5 mock accounts span 3 pages and the cursor loop is actually exercised.
+  // -------------------------------------------------------------------------
+  if (!useRealApi) {
+    console.log("\n== multi-page account sync (VITALLY_ACCOUNTS_PAGE_SIZE=2) ==");
+    const pagedCtx = spawnServer({ VITALLY_ACCOUNTS_PAGE_SIZE: "2" });
+    await initialize(pagedCtx);
+    const agg = await callTool(pagedCtx, "aggregate_accounts", { metric: "count", status: "activeOrChurned" });
+    check(
+      "cache sync follows the next cursor across all pages (5 accounts, page size 2)",
+      agg.population === 5,
+      JSON.stringify(agg)
+    );
+    const refreshed = await callTool(pagedCtx, "refresh_accounts", { includeTraits: false });
+    check(
+      "refresh_accounts re-syncs the full base and reports pages fetched",
+      refreshed.totalAccounts === 5 && refreshed.cacheComplete === true && refreshed.pagesFetched === 3,
+      JSON.stringify({ totalAccounts: refreshed.totalAccounts, cacheComplete: refreshed.cacheComplete, pagesFetched: refreshed.pagesFetched })
+    );
+    pagedCtx.child.kill();
+  }
+
   console.log(`\n${failures.length === 0 ? "All smoke checks passed." : `${failures.length} FAILURE(S)`}`);
   process.exit(failures.length === 0 ? 0 : 1);
 }

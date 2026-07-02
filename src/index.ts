@@ -541,9 +541,12 @@ function mockApiResponse<T>(endpoint: string, method = "GET", body?: unknown): T
 
   if (pathOnly === "/resources/accounts" && method === "GET") {
     const limit = parseInt(params.get("limit") || "100", 10);
+    // Demo cursor is a plain numeric offset (real API uses an opaque token).
+    const from = parseInt(params.get("from") || "0", 10);
+    const slice = MOCK_ACCOUNTS.slice(from, from + limit);
     return {
-      results: MOCK_ACCOUNTS.slice(0, limit).map(applyNullScores),
-      next: null,
+      results: slice.map(applyNullScores),
+      next: from + limit < MOCK_ACCOUNTS.length ? String(from + limit) : null,
     } as unknown as T;
   }
 
@@ -768,13 +771,46 @@ function mockApiResponse<T>(endpoint: string, method = "GET", body?: unknown): T
 // ---------------------------------------------------------------------------
 
 let accountsCache: VitallyAccount[] = [];
+let accountsCacheComplete = false;
+let accountsCacheLoadedAt: string | null = null;
+let accountsCachePages = 0;
 
-async function ensureAccountsLoaded(limit = 100, force = false): Promise<void> {
+// Vitally caps page size at 100. Env override exists only so demo-mode tests
+// can exercise the multi-page loop against the small mock fixture set.
+const ACCOUNTS_PAGE_SIZE = Math.max(
+  1,
+  Math.min(100, parseInt(process.env.VITALLY_ACCOUNTS_PAGE_SIZE || "100", 10) || 100)
+);
+// Hard stop for the sync loop (50 pages × 100 = 5,000 accounts) so a cursor
+// that never goes null cannot spin forever. If the cap is hit the cache is
+// kept but flagged incomplete.
+const ACCOUNTS_PAGE_CAP = 50;
+
+async function ensureAccountsLoaded(force = false): Promise<void> {
   if (!force && accountsCache.length > 0) return;
-  const response = await callVitallyAPI<VitallyPaginatedResponse<VitallyAccount>>(
-    `/resources/accounts${buildQuery({ limit })}`
-  );
-  accountsCache = response.results || [];
+  const collected: VitallyAccount[] = [];
+  let cursor: string | undefined;
+  let pages = 0;
+  let complete = false;
+  while (pages < ACCOUNTS_PAGE_CAP) {
+    pages += 1;
+    const page = await callVitallyAPI<VitallyPaginatedResponse<VitallyAccount>>(
+      // status=activeOrChurned: without it Vitally defaults to active-only,
+      // silently dropping churned accounts from every cache-backed tool.
+      `/resources/accounts${buildQuery({ limit: ACCOUNTS_PAGE_SIZE, from: cursor, status: "activeOrChurned" })}`
+    );
+    const results = page.results || [];
+    collected.push(...results);
+    if (!page.next || results.length === 0) {
+      complete = true;
+      break;
+    }
+    cursor = page.next;
+  }
+  accountsCache = collected;
+  accountsCacheComplete = complete;
+  accountsCacheLoadedAt = new Date().toISOString();
+  accountsCachePages = pages;
 }
 
 // Workspace-level data hygiene flags. Sample once per server lifetime; emit
@@ -788,7 +824,7 @@ async function ensureHealthSample(): Promise<void> {
   if (healthSampleDone) return;
   healthSampleDone = true;
   try {
-    await ensureAccountsLoaded(Math.max(HEALTH_SAMPLE_SIZE, accountsCache.length || 0));
+    await ensureAccountsLoaded();
   } catch {
     return;
   }
@@ -1378,11 +1414,11 @@ const TOOL_DEFINITIONS: ToolDef[] = [
   {
     name: "refresh_accounts",
     description:
-      "Refresh the in-memory account cache. Returns the cached page with full account payloads (traits, MRR, etc).",
+      "Fully re-sync the in-memory account cache from Vitally (all pages, active + churned). Returns the refreshed accounts with full payloads (traits, MRR, etc).",
     inputSchema: {
       type: "object",
       properties: {
-        limit: { type: "number", description: "Page size to load into the cache (default 100)." },
+        limit: { type: "number", description: "Max accounts echoed back in the response (default 100). The cache itself is always fully re-synced." },
         includeTraits: {
           type: "boolean",
           description: "Set to false to return a slim {id,name,externalId,uri} shape. Default true.",
@@ -1989,13 +2025,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case "refresh_accounts": {
       const limit = (args.limit as number | undefined) ?? 100;
       const includeTraits = args.includeTraits === undefined ? true : Boolean(args.includeTraits);
-      const response = await callVitallyAPI<VitallyPaginatedResponse<VitallyAccount>>(
-        `/resources/accounts${buildQuery({ limit })}`
-      );
-      accountsCache = response.results || [];
+      await ensureAccountsLoaded(true);
+      const rows = accountsCache.slice(0, limit);
       return jsonContent({
-        count: accountsCache.length,
-        accounts: accountsCache.map(a => projectAccount(a, includeTraits)),
+        count: rows.length,
+        totalAccounts: accountsCache.length,
+        cacheComplete: accountsCacheComplete,
+        cacheLoadedAt: accountsCacheLoadedAt,
+        pagesFetched: accountsCachePages,
+        accounts: rows.map(a => projectAccount(a, includeTraits)),
       });
     }
 
