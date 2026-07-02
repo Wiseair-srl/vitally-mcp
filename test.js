@@ -673,6 +673,61 @@ async function main() {
     );
   }
 
+  // -------------------------------------------------------------------------
+  // Partiality metadata on account read tools
+  // -------------------------------------------------------------------------
+  if (!useRealApi) {
+    console.log("\n== partiality metadata ==");
+    const partialSearch = await callTool(ctx, "search_accounts", { name: "industries", limit: 1 });
+    check(
+      "search_accounts flags partial when count < totalMatches",
+      partialSearch.count === 1 && partialSearch.totalMatches === 2 && partialSearch.partial === true
+        && typeof partialSearch.note === "string",
+      JSON.stringify({ count: partialSearch.count, totalMatches: partialSearch.totalMatches, partial: partialSearch.partial })
+    );
+    check(
+      "search_accounts reports totalAccounts + cacheComplete",
+      partialSearch.totalAccounts === 5 && partialSearch.cacheComplete === true,
+      JSON.stringify({ totalAccounts: partialSearch.totalAccounts, cacheComplete: partialSearch.cacheComplete })
+    );
+
+    const fullSearch = await callTool(ctx, "search_accounts", { name: "Sace" });
+    check(
+      "search_accounts partial=false when all matches returned",
+      fullSearch.count === 1 && fullSearch.totalMatches === 1 && fullSearch.partial === false && !("note" in fullSearch),
+      JSON.stringify({ count: fullSearch.count, partial: fullSearch.partial })
+    );
+
+    const emptySearch = await callTool(ctx, "search_accounts", { name: "zzz-no-such-account" });
+    check(
+      "search_accounts empty result is structured, not prose",
+      emptySearch.count === 0 && emptySearch.totalMatches === 0 && Array.isArray(emptySearch.accounts),
+      JSON.stringify(emptySearch).slice(0, 200)
+    );
+
+    const cacheModeList = await callTool(ctx, "list_accounts", { sortBy: "mrr", limit: 2 });
+    check(
+      "list_accounts cache-mode flags partial + totalAccounts",
+      cacheModeList.count === 2 && cacheModeList.partial === true
+        && cacheModeList.totalAccounts === 5 && cacheModeList.cacheComplete === true,
+      JSON.stringify({ count: cacheModeList.count, totalMatches: cacheModeList.totalMatches, partial: cacheModeList.partial })
+    );
+
+    const passThroughList = await callTool(ctx, "list_accounts", { limit: 2 });
+    check(
+      "list_accounts pass-through flags partial when next cursor present",
+      passThroughList.partial === true && passThroughList.next !== null,
+      JSON.stringify({ partial: passThroughList.partial, next: passThroughList.next })
+    );
+
+    const aggMeta = await callTool(ctx, "aggregate_accounts", { metric: "count" });
+    check(
+      "aggregate_accounts reports cacheComplete",
+      aggMeta.cacheComplete === true && typeof aggMeta.cacheLoadedAt === "string",
+      JSON.stringify({ cacheComplete: aggMeta.cacheComplete, cacheLoadedAt: aggMeta.cacheLoadedAt })
+    );
+  }
+
   ctx.child.kill();
 
   // -------------------------------------------------------------------------

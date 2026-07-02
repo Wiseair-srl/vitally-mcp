@@ -1043,7 +1043,7 @@ const TOOL_DEFINITIONS: ToolDef[] = [
   {
     name: "search_accounts",
     description:
-      "Search the cached account list by name and/or externalId. Returns the full account payload by default. Use `traits` to project only specific trait keys, or `includeTraits=false` for a slim shape. Cache is single-page; use list_accounts for full enumeration.",
+      "Search accounts by name and/or externalId over the fully-synced cache (entire Vitally base, active + churned). Returns the full account payload by default. Use `traits` to project only specific trait keys, or `includeTraits=false` for a slim shape. Response reports count vs totalMatches vs totalAccounts; `partial: true` means more matches exist than were returned — raise `limit`.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1098,7 +1098,7 @@ const TOOL_DEFINITIONS: ToolDef[] = [
   {
     name: "list_accounts",
     description:
-      "Paginated list of accounts. By default proxies GET /resources/accounts with cursor pagination. When `sortBy`, `filterTraits`, or `traits` projection is provided, the call is served from the in-memory cache (refreshed if empty). `traits` projects only specific trait keys per row; `includeTraits=false` returns a slim shape.",
+      "Paginated list of accounts. By default proxies GET /resources/accounts with cursor pagination (`partial: true` + non-null `next` mean more pages exist — pass `next` as `from`). When `sortBy`, `filterTraits`, or `traits` projection is provided, the call is served from the fully-synced in-memory cache and reports count vs totalMatches vs totalAccounts. `traits` projects only specific trait keys per row; `includeTraits=false` returns a slim shape.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1575,22 +1575,28 @@ async function handleSearchAccounts(args: Record<string, unknown>) {
   if (externalId) filtered = filtered.filter(a => a.externalId === externalId);
 
   const limited = filtered.slice(0, limit);
-  if (limited.length === 0) {
-    return { content: [{ type: "text" as const, text: "No accounts found matching the criteria" }] };
-  }
 
   const conflictWarning =
     traits && traits.length > 0 && includeTraitsRaw === false
       ? "`traits` and includeTraits=false were both provided; `traits` wins."
       : null;
 
+  const partial = limited.length < filtered.length;
   const payload: Record<string, unknown> = {
     count: limited.length,
     totalMatches: filtered.length,
-    cacheNote:
-      "Searches the cached page only. If your workspace has more than 100 accounts, use list_accounts to paginate the full set.",
+    totalAccounts: accountsCache.length,
+    partial,
+    cacheComplete: accountsCacheComplete,
+    cacheLoadedAt: accountsCacheLoadedAt,
     accounts: limited.map(a => projectAccount(a, includeTraits, traits)),
   };
+  if (partial) {
+    payload.note = `Returned ${limited.length} of ${filtered.length} matches; raise \`limit\` to get the rest.`;
+  }
+  if (!accountsCacheComplete) {
+    payload.note = `${payload.note ? payload.note + " " : ""}Account cache is INCOMPLETE (sync hit the page cap); totalMatches/totalAccounts undercount the real base.`;
+  }
   if (conflictWarning) payload.warning = conflictWarning;
   return jsonContent(payload);
 }
@@ -1716,6 +1722,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const payload: Record<string, unknown> = {
           count: sliced.length,
           totalMatches: rows.length,
+          totalAccounts: accountsCache.length,
+          partial: sliced.length < rows.length,
+          cacheComplete: accountsCacheComplete,
+          cacheLoadedAt: accountsCacheLoadedAt,
           next: null,
           mode: "cache",
           results: sliced.map(a => projectAccount(a, includeTraits, traits)),
@@ -1727,6 +1737,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const data = await paginate<VitallyAccount>("/resources/accounts", { limit, from, status });
       const payload: Record<string, unknown> = {
         count: data.results.length,
+        // Live pass-through: a non-null cursor is the only completeness signal.
+        partial: data.next !== null,
         next: data.next,
         results: data.results.map(a => projectAccount(a, includeTraits, traits)),
       };
@@ -1832,6 +1844,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           groupBy: groupBy ?? null,
           totalGroups: out.length,
           population: rows.length,
+          cacheComplete: accountsCacheComplete,
+          cacheLoadedAt: accountsCacheLoadedAt,
           rows: limited,
         })
       );
@@ -2030,6 +2044,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return jsonContent({
         count: rows.length,
         totalAccounts: accountsCache.length,
+        partial: rows.length < accountsCache.length,
         cacheComplete: accountsCacheComplete,
         cacheLoadedAt: accountsCacheLoadedAt,
         pagesFetched: accountsCachePages,
