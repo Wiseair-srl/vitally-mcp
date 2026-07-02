@@ -1501,7 +1501,7 @@ const TOOL_DEFINITIONS: ToolDef[] = [
 const server = new Server(
   {
     name: "vitally-api",
-    version: "2.4.0",
+    version: "2.5.0",
   },
   {
     capabilities: {

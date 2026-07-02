@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.5.0 — 2026-07-02
+
+### Fixed
+- **Account cache was silently partial.** Three compounding bugs in the ingest layer:
+  1. `ensureAccountsLoaded` fetched a single page and never followed the `next` cursor. Now it loops until the cursor is exhausted (page size 100 = Vitally max; hard cap 50 pages against a cursor that never goes null — if hit, the cache is flagged incomplete instead of looping forever).
+  2. The sync omitted `status`, so Vitally's default (`active`) silently excluded churned accounts from every cache-backed tool — `status: "churned"` / `"activeOrChurned"` filters on `list_accounts` / `aggregate_accounts` operated on a cache that never contained churned rows. The sync now passes `status=activeOrChurned` explicitly.
+  3. `ensureHealthSample` could poison the cache: when it ran on an empty cache it loaded only 20 accounts (`HEALTH_SAMPLE_SIZE`), and every later `ensureAccountsLoaded()` no-oped because the cache was non-empty. Whether you saw 20, 52 or the full base depended on which tool happened to run first in the server's lifetime. It now triggers a full sync.
+
+### Changed
+- **Partiality is now machine-readable on every account read.**
+  - `search_accounts`, `list_accounts` (cache-mode), `refresh_accounts`: response carries `totalAccounts` (whole cached base), `partial` (`true` when fewer rows are returned than match), `cacheComplete`, `cacheLoadedAt`, alongside the existing `count` / `totalMatches`.
+  - `list_accounts` (pass-through): `partial: true` whenever a non-null `next` cursor exists.
+  - `aggregate_accounts`: reports `cacheComplete` + `cacheLoadedAt` next to `population`.
+  - The static (and misleading) `cacheNote` on `search_accounts` is gone; a `note` string appears only when the response is actually partial or the cache is incomplete.
+  - `search_accounts` with zero matches returns structured JSON (`count: 0, accounts: []`) instead of a prose string.
+- `refresh_accounts` always re-syncs the full base; its `limit` parameter now caps only how many accounts are echoed back in the response (previously it was the single-page size loaded into the cache).
+- Behavior note: since the cache now includes churned accounts, `search_accounts` matches them too (payload carries `churnedAt`). `list_accounts` / `aggregate_accounts` defaults are unchanged (`status: "active"`).
+- Server `name` advertised over MCP bumped to `vitally-api` v2.5.0.
+
+### Migration
+- Clients that treated `count` / `totalMatches` on `search_accounts` as the workspace total should read `totalAccounts` and honor `partial`.
+- Demo mock for `GET /resources/accounts` now implements offset-based cursor pagination; `VITALLY_ACCOUNTS_PAGE_SIZE` (test-only env) shrinks the sync page size to exercise the loop.
+
 ## v2.4.0 — 2026-05-13
 
 ### Added
