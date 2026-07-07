@@ -1,5 +1,27 @@
 # Changelog
 
+## v2.6.0 — 2026-07-07
+
+### Added
+- **`list_custom_object_records`** — the records (instances) of a Custom Object, closing the biggest read gap (contracts, proposals, renewal/upsell stages were invisible; only schemas were exposed).
+  - `customObject` accepts the Vitally ID **or the object name/label** (e.g. `"contract"`), resolved via a one-fetch-per-lifetime schema cache.
+  - Without `accountId`: `GET /resources/customObjects/:id/instances`, paginated `{results, next}`.
+  - With `accountId` (Vitally account UUID): `GET .../instances/search?customerId=<id>`. The search endpoint returns a **bare array** (no envelope) — normalized to `{results, next: null}`.
+  - Instance rows embed the full parent account twice (`customer` + `customers[]`); both stripped by default (`customerId` preserved), `includeCustomer: true` restores them.
+  - Read-only by design: no create/update/delete on instances — contract/proposal records are system-of-record data.
+- **`list_meetings`** — `GET /resources/meetings`, or per-account (`/resources/accounts/:id/meetings`) / per-organization scoping. Embedded `account` stripped by default.
+- **`get_meeting`** — single meeting by ID; `includeTranscript: true` also fetches `GET /resources/meetings/:id/transcript` and attaches it (`transcript: null` + `transcriptNote` when none exists instead of failing).
+- **`list_nps_responses`** — `GET /resources/npsResponses`, or per-account. Score 0-10, `feedback`, `respondedAt`.
+- **`list_survey_responses`** — `GET /resources/surveys/:surveyId/responses`. Vitally has **no list-surveys endpoint** (probed: 404), so `surveyId` must come from the survey URL in the UI. Response envelope is undocumented — both bare-array and `{results, next}` shapes are normalized.
+- **`get_survey_response`** — `GET /resources/surveyResponses/:responseId` (single response with `questionResponses`).
+- **`list_admins`** — `GET /resources/admins` (`{id, name, email, licenseStatus}`). Use to resolve `assignedToId` / `authorId`.
+- Demo-mode mocks for every new endpoint, faithful to the real API (contract + proposal objects mirroring the Wiseair workspace; the instances search mock returns a bare array so the normalization path is exercised in tests).
+- Server `name` advertised over MCP bumped to `vitally-api` v2.6.0.
+
+### API coverage notes (verified 2026-07-07 against the live EU API)
+- `account.segments` exists in the payload but is empty on **all 86 accounts** of the workspace — segment membership is not usable from the REST API today; no tool was built on it.
+- Not exposed by Vitally's public REST API at all (hence not implementable): view/hub/pipeline definitions, playbooks (definitions, runs, matching audiences), formula-trait logic and permissions, account audit trail, Goals, Indicators, Docs. Conversation `messages` support GET-by-id only (no per-conversation list) — skipped as low-value.
+
 ## v2.5.0 — 2026-07-02
 
 ### Fixed
