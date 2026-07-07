@@ -144,6 +144,8 @@ async function main() {
     "get_account_notes", "list_notes", "get_note_by_id", "create_account_note",
     "list_projects", "get_project", "list_organizations", "refresh_accounts",
     "list_custom_fields", "list_custom_objects", "list_task_categories", "list_note_categories",
+    "list_custom_object_records", "list_meetings", "get_meeting",
+    "list_nps_responses", "list_survey_responses", "get_survey_response", "list_admins",
   ];
   for (const t of required) {
     check(`tool registered: ${t}`, toolNames.includes(t), `present: ${toolNames.join(", ")}`);
@@ -671,6 +673,120 @@ async function main() {
       typeof row.id === "string" && typeof row.name === "string",
       JSON.stringify(row)
     );
+  }
+
+  // -------------------------------------------------------------------------
+  // v2.6.0: custom object records, meetings, NPS, surveys, admins
+  // -------------------------------------------------------------------------
+  console.log("\n== v2.6.0: list_admins ==");
+  const admins = await callTool(ctx, "list_admins", { limit: 5 });
+  check("list_admins returns {results, next}", Array.isArray(admins.results), JSON.stringify(admins).slice(0, 200));
+  if (!useRealApi) {
+    check(
+      "admin row has id+name+email",
+      admins.results.length === 2 && admins.results.every(a => a.id && a.name && a.email),
+      JSON.stringify(admins.results)
+    );
+  }
+
+  console.log("\n== v2.6.0: list_custom_object_records ==");
+  await expectThrow(
+    callTool(ctx, "list_custom_object_records", {}),
+    "list_custom_object_records requires customObject",
+    /customObject/i
+  );
+  const contracts = await callTool(ctx, "list_custom_object_records", { customObject: "contract", limit: 10 });
+  check(
+    "resolves customObject by name and returns records",
+    Array.isArray(contracts.results) && contracts.customObject?.name === "contract" && contracts.mode === "list",
+    JSON.stringify(contracts).slice(0, 300)
+  );
+  if (!useRealApi) {
+    check("contract records: 2 rows from mock", contracts.count === 2, `count=${contracts.count}`);
+    const row = contracts.results[0];
+    check(
+      "record row strips embedded customer/customers, keeps customerId + traits",
+      !("customer" in row) && !("customers" in row) && typeof row.customerId === "string" && typeof row.traits === "object",
+      Object.keys(row).join(",")
+    );
+
+    const forAccount = await callTool(ctx, "list_custom_object_records", { customObject: "contract", accountId: "4" });
+    check(
+      "accountId filter uses the search endpoint (bare array normalized)",
+      forAccount.mode === "search" && forAccount.count === 1 && forAccount.results[0].customerId === "4",
+      JSON.stringify(forAccount).slice(0, 300)
+    );
+
+    const withCustomer = await callTool(ctx, "list_custom_object_records", { customObject: "Proposal", includeCustomer: true });
+    check(
+      "label resolution (Proposal) + includeCustomer=true embeds the account",
+      withCustomer.count === 1 && withCustomer.results[0].customer?.name === "Sace",
+      JSON.stringify(withCustomer.results?.[0]?.customer?.name)
+    );
+    check(
+      "proposal record carries renewal/upsell stage traits",
+      withCustomer.results[0].traits?.["vitally.custom.renewalStage"] === "Proposal sent"
+        && withCustomer.results[0].traits?.["vitally.custom.upsellStage"] === "Discovery"
+    );
+
+    await expectThrow(
+      callTool(ctx, "list_custom_object_records", { customObject: "nonexistent" }),
+      "unknown custom object lists known ones",
+      /not found.*contract/is
+    );
+  }
+
+  console.log("\n== v2.6.0: meetings ==");
+  const meetings = await callTool(ctx, "list_meetings", { limit: 5 });
+  check("list_meetings returns {results, next}", Array.isArray(meetings.results), JSON.stringify(meetings).slice(0, 200));
+  if (!useRealApi) {
+    check("meetings: 2 rows, account stripped by default",
+      meetings.results.length === 2 && meetings.results.every(m => !("account" in m) && typeof m.accountId === "string"));
+
+    const saceMeetings = await callTool(ctx, "list_meetings", { accountId: "4" });
+    check("per-account meetings filter", saceMeetings.results.length === 1 && saceMeetings.results[0].id === "m2",
+      JSON.stringify(saceMeetings).slice(0, 200));
+
+    const withTranscript = await callTool(ctx, "get_meeting", { meetingId: "m1", includeTranscript: true });
+    check(
+      "get_meeting attaches transcript when available",
+      withTranscript.id === "m1" && typeof withTranscript.transcript?.transcript === "string",
+      JSON.stringify(withTranscript).slice(0, 200)
+    );
+    const noTranscript = await callTool(ctx, "get_meeting", { meetingId: "m2", includeTranscript: true });
+    check(
+      "get_meeting degrades gracefully when transcript missing",
+      noTranscript.id === "m2" && noTranscript.transcript === null && typeof noTranscript.transcriptNote === "string",
+      JSON.stringify(noTranscript).slice(0, 200)
+    );
+  }
+
+  console.log("\n== v2.6.0: NPS + surveys ==");
+  const nps = await callTool(ctx, "list_nps_responses", { limit: 5 });
+  check("list_nps_responses returns {results, next}", Array.isArray(nps.results), JSON.stringify(nps).slice(0, 200));
+  if (!useRealApi) {
+    check("nps rows carry score+respondedAt, account stripped",
+      nps.results.length === 2 && nps.results.every(r => typeof r.score === "number" && !("account" in r)));
+    const acmeNps = await callTool(ctx, "list_nps_responses", { accountId: "1" });
+    check("per-account NPS filter", acmeNps.results.length === 1 && acmeNps.results[0].score === 9,
+      JSON.stringify(acmeNps).slice(0, 200));
+  }
+
+  await expectThrow(
+    callTool(ctx, "list_survey_responses", {}),
+    "list_survey_responses requires surveyId",
+    /surveyId/i
+  );
+  if (!useRealApi) {
+    const surveyResponses = await callTool(ctx, "list_survey_responses", { surveyId: "survey-1" });
+    check(
+      "list_survey_responses returns responses with questionResponses",
+      surveyResponses.results?.length === 1 && Array.isArray(surveyResponses.results[0].questionResponses),
+      JSON.stringify(surveyResponses).slice(0, 300)
+    );
+    const oneResponse = await callTool(ctx, "get_survey_response", { responseId: "sr-1" });
+    check("get_survey_response returns the response by id", oneResponse.id === "sr-1" && oneResponse.surveyId === "survey-1",
+      JSON.stringify(oneResponse).slice(0, 200));
   }
 
   // -------------------------------------------------------------------------

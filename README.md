@@ -65,6 +65,14 @@ Without `VITALLY_API_KEY` (or with a placeholder value) the server runs in **dem
 
 **Schema discovery** — `list_custom_fields` (custom trait definitions per model — required `model`, plus `customObjectId` when `model=customObjects`), `list_custom_objects` (Custom Object schemas), `list_task_categories`, `list_note_categories`. Use these to discover trait `path` keys and `categoryId` values before writing.
 
+**Custom object records** — `list_custom_object_records` (the actual records/instances of a Custom Object — e.g. contracts, proposals — with their traits; accepts the object's id or name/label, optional `accountId` filter via the search endpoint; embedded full `customer` account stripped by default). Read-only.
+
+**Meetings** — `list_meetings` (workspace-wide, per-account, or per-organization), `get_meeting` (single meeting; `includeTranscript=true` attaches the transcript).
+
+**NPS & surveys** — `list_nps_responses` (workspace-wide or per-account), `list_survey_responses` (per `surveyId` — Vitally has no list-surveys endpoint, take the id from the survey URL in the UI), `get_survey_response`.
+
+**Admins** — `list_admins` (workspace team members; use to resolve `assignedToId` for `create_task` / `authorId` for `create_account_note`).
+
 ### Payload shaping
 
 Common params across account-returning tools:

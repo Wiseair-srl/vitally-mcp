@@ -7,8 +7,9 @@
  * Vitally MCP Server (Wiseair fork)
  *
  * MCP server for the Vitally REST API. Exposes account, user, task, project,
- * note, conversation, and organization data with first-class trait/MRR/health
- * fields and explicit cursor pagination.
+ * note, conversation, organization, custom-object record, meeting, NPS,
+ * survey, and admin data with first-class trait/MRR/health fields and
+ * explicit cursor pagination.
  */
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -506,6 +507,148 @@ const MOCK_NOTES: VitallyNote[] = [
   },
 ];
 
+const MOCK_ADMINS = [
+  { id: "adm-1", name: "Andrea Rossi", email: "andrea@wiseair.example", licenseStatus: "active" },
+  { id: "adm-2", name: "Paola Bianchi", email: "paola@wiseair.example", licenseStatus: "active" },
+];
+
+// Mirrors the real workspace: two Custom Object schemas, contract + proposal.
+const MOCK_CUSTOM_OBJECTS = [
+  {
+    id: "co-1",
+    name: "subscription",
+    label: "Subscription",
+    syncActive: true,
+    writeMode: "writable",
+    customFields: [],
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-02-01T00:00:00Z",
+  },
+  {
+    id: "co-2",
+    name: "contract",
+    label: "Contract",
+    syncActive: true,
+    writeMode: "writable",
+    customFields: [],
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-02-01T00:00:00Z",
+  },
+  {
+    id: "co-3",
+    name: "proposal",
+    label: "Proposal",
+    syncActive: true,
+    writeMode: "writable",
+    customFields: [],
+    createdAt: "2026-01-01T00:00:00Z",
+    updatedAt: "2026-02-01T00:00:00Z",
+  },
+];
+
+// Instance rows carry the same shape as the real API: embedded `customer`
+// (full account) + `customers` array, traits, archivedAt.
+const MOCK_CO_INSTANCES: Record<string, Record<string, unknown>[]> = {
+  "co-2": [
+    {
+      id: "coi-c1",
+      name: "Acme 2026 renewal",
+      externalId: null,
+      customObjectId: "co-2",
+      customerId: "1",
+      organizationId: null,
+      customer: MOCK_ACCOUNTS[0],
+      customers: [MOCK_ACCOUNTS[0]],
+      archivedAt: null,
+      traits: { "vitally.custom.contractArr": 120000, "vitally.custom.renewalStage": "Negotiation" },
+      createdAt: "2026-01-05T00:00:00Z",
+      updatedAt: "2026-06-01T00:00:00Z",
+    },
+    {
+      id: "coi-c2",
+      name: "Sace 2027 contract",
+      externalId: null,
+      customObjectId: "co-2",
+      customerId: "4",
+      organizationId: null,
+      customer: MOCK_ACCOUNTS[3],
+      customers: [MOCK_ACCOUNTS[3]],
+      archivedAt: null,
+      traits: { "vitally.custom.contractArr": 7000, "vitally.custom.renewalStage": "Closed Won" },
+      createdAt: "2026-02-10T00:00:00Z",
+      updatedAt: "2026-05-01T00:00:00Z",
+    },
+  ],
+  "co-3": [
+    {
+      id: "coi-p1",
+      name: "Sace - Rinnovo con nuovo pricing",
+      externalId: null,
+      customObjectId: "co-3",
+      customerId: "4",
+      organizationId: null,
+      customer: MOCK_ACCOUNTS[3],
+      customers: [MOCK_ACCOUNTS[3]],
+      archivedAt: null,
+      traits: {
+        "vitally.custom.upsellArr": 2000,
+        "vitally.custom.renewalStage": "Proposal sent",
+        "vitally.custom.upsellStage": "Discovery",
+        "vitally.custom.primaryProposedArr": 9000,
+      },
+      createdAt: "2026-03-01T00:00:00Z",
+      updatedAt: "2026-06-20T00:00:00Z",
+    },
+  ],
+};
+
+const MOCK_MEETINGS: Record<string, unknown>[] = [
+  {
+    id: "m1",
+    subject: "Acme QBR",
+    date: "2026-06-15T10:00:00Z",
+    durationInMinutes: 45,
+    accountId: "1",
+    account: MOCK_ACCOUNTS[0],
+    participants: [{ name: "John Doe", email: "john@acme-corp.com" }],
+    createdAt: "2026-06-15T11:00:00Z",
+    updatedAt: "2026-06-15T11:00:00Z",
+  },
+  {
+    id: "m2",
+    subject: "Sace onboarding kickoff",
+    date: "2026-06-20T14:00:00Z",
+    durationInMinutes: 30,
+    accountId: "4",
+    account: MOCK_ACCOUNTS[3],
+    participants: [],
+    createdAt: "2026-06-20T15:00:00Z",
+    updatedAt: "2026-06-20T15:00:00Z",
+  },
+];
+
+const MOCK_MEETING_TRANSCRIPTS: Record<string, unknown> = {
+  m1: { meetingId: "m1", transcript: "Speaker 1: Welcome to the QBR...", createdAt: "2026-06-15T11:05:00Z" },
+};
+
+const MOCK_NPS_RESPONSES: Record<string, unknown>[] = [
+  { id: "nps-1", userId: "101", accountId: "1", account: MOCK_ACCOUNTS[0], score: 9, feedback: "Great product", respondedAt: "2026-05-01T09:00:00Z" },
+  { id: "nps-2", userId: "103", accountId: "3", account: MOCK_ACCOUNTS[2], score: 5, feedback: "Setup was hard", respondedAt: "2026-05-10T09:00:00Z" },
+];
+
+const MOCK_SURVEY_RESPONSES: Record<string, unknown>[] = [
+  {
+    id: "sr-1",
+    surveyId: "survey-1",
+    userId: "101",
+    respondedAt: "2026-06-01T08:00:00Z",
+    questionResponses: [
+      { id: "qr-1", questionId: "q-1", data: { type: "rating", value: 4 } },
+      { id: "qr-2", questionId: "q-2", data: { type: "text", value: "More dashboards please" } },
+    ],
+  },
+];
+
 function applyNullScores(acc: VitallyAccount): VitallyAccount {
   if (!DEMO_NULL_SCORES) return acc;
   return { ...acc, healthScore: null, npsScore: null };
@@ -713,21 +856,83 @@ function mockApiResponse<T>(endpoint: string, method = "GET", body?: unknown): T
   }
 
   if (pathOnly === "/resources/customObjects" && method === "GET") {
+    return { results: MOCK_CUSTOM_OBJECTS, next: null } as unknown as T;
+  }
+
+  // Search returns a BARE ARRAY (no {results, next} envelope) — same as the
+  // real API. Keep the mock faithful so the normalization path is exercised.
+  const instancesSearchMatch = pathOnly.match(/^\/resources\/customObjects\/([^/]+)\/instances\/search$/);
+  if (instancesSearchMatch && method === "GET") {
+    const coId = decodeURIComponent(instancesSearchMatch[1]);
+    const customerId = params.get("customerId");
+    let rows = MOCK_CO_INSTANCES[coId] ?? [];
+    if (customerId) rows = rows.filter(r => r.customerId === customerId);
+    return rows as unknown as T;
+  }
+
+  const instancesMatch = pathOnly.match(/^\/resources\/customObjects\/([^/]+)\/instances$/);
+  if (instancesMatch && method === "GET") {
+    const coId = decodeURIComponent(instancesMatch[1]);
+    return { results: MOCK_CO_INSTANCES[coId] ?? [], next: null } as unknown as T;
+  }
+
+  const meetingTranscriptMatch = pathOnly.match(/^\/resources\/meetings\/([^/]+)\/transcript$/);
+  if (meetingTranscriptMatch && method === "GET") {
+    const meetingId = decodeURIComponent(meetingTranscriptMatch[1]);
+    const transcript = MOCK_MEETING_TRANSCRIPTS[meetingId];
+    if (!transcript) throw new Error(`Vitally API 404 Not Found on GET ${endpoint}: no transcript`);
+    return transcript as unknown as T;
+  }
+
+  const meetingByIdMatch = pathOnly.match(/^\/resources\/meetings\/([^/]+)$/);
+  if (meetingByIdMatch && method === "GET") {
+    const meetingId = decodeURIComponent(meetingByIdMatch[1]);
+    const meeting = MOCK_MEETINGS.find(m => m.id === meetingId);
+    if (!meeting) throw new Error(`Vitally API 404 Not Found on GET ${endpoint}: meeting not found`);
+    return meeting as unknown as T;
+  }
+
+  const accountMeetingsMatch = pathOnly.match(/^\/resources\/accounts\/([^/]+)\/meetings$/);
+  if (accountMeetingsMatch && method === "GET") {
+    const accountId = decodeURIComponent(accountMeetingsMatch[1]);
+    const acc = MOCK_ACCOUNTS.find(a => a.id === accountId || a.externalId === accountId);
+    return { results: MOCK_MEETINGS.filter(m => m.accountId === acc?.id), next: null } as unknown as T;
+  }
+
+  if (pathOnly === "/resources/meetings" && method === "GET") {
+    return { results: MOCK_MEETINGS, next: null } as unknown as T;
+  }
+
+  const accountNpsMatch = pathOnly.match(/^\/resources\/accounts\/([^/]+)\/npsResponses$/);
+  if (accountNpsMatch && method === "GET") {
+    const accountId = decodeURIComponent(accountNpsMatch[1]);
+    const acc = MOCK_ACCOUNTS.find(a => a.id === accountId || a.externalId === accountId);
+    return { results: MOCK_NPS_RESPONSES.filter(r => r.accountId === acc?.id), next: null } as unknown as T;
+  }
+
+  if (pathOnly === "/resources/npsResponses" && method === "GET") {
+    return { results: MOCK_NPS_RESPONSES, next: null } as unknown as T;
+  }
+
+  const surveyResponsesMatch = pathOnly.match(/^\/resources\/surveys\/([^/]+)\/responses$/);
+  if (surveyResponsesMatch && method === "GET") {
+    const surveyId = decodeURIComponent(surveyResponsesMatch[1]);
     return {
-      results: [
-        {
-          id: "co-1",
-          name: "subscription",
-          label: "Subscription",
-          syncActive: true,
-          writeMode: "writable",
-          customFields: [],
-          createdAt: "2026-01-01T00:00:00Z",
-          updatedAt: "2026-02-01T00:00:00Z",
-        },
-      ],
+      results: MOCK_SURVEY_RESPONSES.filter(r => r.surveyId === surveyId),
       next: null,
     } as unknown as T;
+  }
+
+  const surveyResponseByIdMatch = pathOnly.match(/^\/resources\/surveyResponses\/([^/]+)$/);
+  if (surveyResponseByIdMatch && method === "GET") {
+    const responseId = decodeURIComponent(surveyResponseByIdMatch[1]);
+    const found = MOCK_SURVEY_RESPONSES.find(r => r.id === responseId);
+    if (!found) throw new Error(`Vitally API 404 Not Found on GET ${endpoint}: survey response not found`);
+    return found as unknown as T;
+  }
+
+  if (pathOnly === "/resources/admins" && method === "GET") {
+    return { results: MOCK_ADMINS, next: null } as unknown as T;
   }
 
   if (pathOnly === "/resources/taskCategories" && method === "GET") {
@@ -989,6 +1194,62 @@ const GUARDED_TRAITS = new Set<string>([
 function findGuardedTraitWrites(traits: Record<string, unknown> | undefined): string[] {
   if (!traits) return [];
   return Object.keys(traits).filter(k => GUARDED_TRAITS.has(k));
+}
+
+// ---------------------------------------------------------------------------
+// Custom Object record helpers
+// ---------------------------------------------------------------------------
+
+interface CustomObjectSchema {
+  id: string;
+  name?: string;
+  label?: string;
+  [key: string]: unknown;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Schemas change rarely; one fetch per server lifetime is enough. The mock
+// "co-*" ids are not UUIDs, so demo mode always goes through the name path —
+// resolveCustomObject therefore also accepts raw ids returned by the list.
+let customObjectSchemasCache: CustomObjectSchema[] | null = null;
+
+async function resolveCustomObject(ref: string): Promise<CustomObjectSchema> {
+  if (UUID_RE.test(ref)) return { id: ref };
+  if (!customObjectSchemasCache) {
+    const page = await callVitallyAPI<VitallyPaginatedResponse<CustomObjectSchema>>(
+      "/resources/customObjects?limit=100"
+    );
+    customObjectSchemasCache = page.results || [];
+  }
+  const needle = ref.toLowerCase();
+  const hit = customObjectSchemasCache.find(
+    s =>
+      s.id === ref ||
+      String(s.name ?? "").toLowerCase() === needle ||
+      String(s.label ?? "").toLowerCase() === needle
+  );
+  if (!hit) {
+    const known = customObjectSchemasCache.map(s => s.name ?? s.label ?? s.id).join(", ");
+    throw new Error(`Custom Object "${ref}" not found. Known objects: ${known || "(none)"}`);
+  }
+  return hit;
+}
+
+/**
+ * Instance rows embed the FULL parent account twice (`customer` object +
+ * `customers` array) — strip both by default, preserve customerId.
+ */
+function stripInstanceCustomer(row: Record<string, unknown>, includeCustomer: boolean): Record<string, unknown> {
+  if (includeCustomer) return row;
+  const { customer, customers, ...rest } = row as Record<string, unknown> & {
+    customer?: VitallyAccount;
+    customers?: VitallyAccount[];
+  };
+  if (rest.customerId === undefined && customer && typeof customer === "object") {
+    rest.customerId = (customer as VitallyAccount).id;
+  }
+  return rest;
 }
 
 // ---------------------------------------------------------------------------
@@ -1492,6 +1753,102 @@ const TOOL_DEFINITIONS: ToolDef[] = [
       },
     },
   },
+  {
+    name: "list_custom_object_records",
+    description:
+      "Read the RECORDS (instances) of a Custom Object — e.g. every Contract or Proposal, with their traits (renewal/upsell stage, proposed ARR, ...). `customObject` accepts the Vitally ID or the object name/label (e.g. \"contract\"; resolved via list_custom_objects). Without `accountId` calls GET /resources/customObjects/:id/instances (paginated {results, next}); with `accountId` calls .../instances/search?customerId=<id> (Vitally account UUID, no cursor). The embedded full `customer` account (+ `customers` array) is stripped by default — pass includeCustomer=true to keep it. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        customObject: { type: "string", description: "Custom Object Vitally ID, name, or label (case insensitive). Required." },
+        accountId: { type: "string", description: "Vitally account UUID. If set, only records linked to this account are returned (search endpoint)." },
+        limit: { type: "number", description: "Page size, max 100, default 50." },
+        from: { type: "string", description: "Cursor token from the previous response's `next` field. Ignored when accountId is set (search has no cursor)." },
+        includeCustomer: { type: "boolean", description: "If true, keep the embedded full customer account object(s) on each record. Default false (customerId is preserved)." },
+      },
+      required: ["customObject"],
+    },
+  },
+  {
+    name: "list_meetings",
+    description:
+      "Paginated list of Meetings ({results, next}). Workspace-wide by default; pass `accountId` for GET /resources/accounts/:id/meetings or `organizationId` for the org-scoped list. Embedded `account` per row omitted by default. Use get_meeting with includeTranscript=true for the transcript.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string", description: "Vitally account ID or externalId. Scopes the list to one account." },
+        organizationId: { type: "string", description: "Vitally organization ID. Scopes the list to one organization. Ignored if accountId is set." },
+        limit: { type: "number", description: "Page size, max 100, default 50." },
+        from: { type: "string", description: "Cursor token from the previous response's `next` field." },
+        includeAccount: { type: "boolean", description: "If true, embed the full account object on each row. Default false." },
+      },
+    },
+  },
+  {
+    name: "get_meeting",
+    description:
+      "Get a single meeting by ID (GET /resources/meetings/:id). With includeTranscript=true also fetches GET /resources/meetings/:id/transcript and attaches it as `transcript` (null + `transcriptNote` if none exists).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        meetingId: { type: "string", description: "Vitally meeting ID or externalId." },
+        includeTranscript: { type: "boolean", description: "If true, attach the meeting transcript. Default false." },
+      },
+      required: ["meetingId"],
+    },
+  },
+  {
+    name: "list_nps_responses",
+    description:
+      "Paginated list of NPS responses ({results, next}) — score 0-10, feedback text, respondedAt, userId. Workspace-wide by default; pass `accountId` for GET /resources/accounts/:id/npsResponses. Embedded `account` per row omitted by default.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        accountId: { type: "string", description: "Vitally account ID or externalId. Scopes the list to one account." },
+        limit: { type: "number", description: "Page size, max 100, default 50." },
+        from: { type: "string", description: "Cursor token from the previous response's `next` field." },
+        includeAccount: { type: "boolean", description: "If true, embed the full account object on each row. Default false." },
+      },
+    },
+  },
+  {
+    name: "list_survey_responses",
+    description:
+      "List the responses of one Custom Survey (GET /resources/surveys/:surveyId/responses). Each response carries `questionResponses` [{questionId, data:{type, value}}]. Vitally has NO endpoint to list surveys — take `surveyId` from the survey's URL in the Vitally UI.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        surveyId: { type: "string", description: "Vitally survey ID (from the survey URL in the UI). Required." },
+        limit: { type: "number", description: "Page size, max 100, default 50." },
+        from: { type: "string", description: "Cursor token from the previous response's `next` field, if paginated." },
+      },
+      required: ["surveyId"],
+    },
+  },
+  {
+    name: "get_survey_response",
+    description:
+      "Get a single survey response with its answers (GET /resources/surveyResponses/:responseId).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        responseId: { type: "string", description: "Vitally survey response ID. Required." },
+      },
+      required: ["responseId"],
+    },
+  },
+  {
+    name: "list_admins",
+    description:
+      "Paginated list of Admin users ({results, next}) — the workspace team members ({id, name, email, licenseStatus}). Use to resolve `assignedToId` for create_task and `authorId` for create_account_note.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Page size, max 100, default 50." },
+        from: { type: "string", description: "Cursor token from the previous response's `next` field." },
+      },
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1501,7 +1858,7 @@ const TOOL_DEFINITIONS: ToolDef[] = [
 const server = new Server(
   {
     name: "vitally-api",
-    version: "2.5.0",
+    version: "2.6.0",
   },
   {
     capabilities: {
@@ -2097,6 +2454,134 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const limit = (args.limit as number | undefined) ?? 50;
       const from = args.from as string | undefined;
       const data = await paginate<Record<string, unknown>>("/resources/noteCategories", { limit, from });
+      return jsonContent(data);
+    }
+
+    case "list_custom_object_records": {
+      const customObjectRef = args.customObject as string | undefined;
+      if (!customObjectRef) throw new Error("customObject is required (Vitally ID, name, or label)");
+      const accountId = args.accountId as string | undefined;
+      const limit = (args.limit as number | undefined) ?? 50;
+      const from = args.from as string | undefined;
+      const includeCustomer = Boolean(args.includeCustomer);
+
+      const schema = await resolveCustomObject(customObjectRef);
+      const coId = encodeURIComponent(schema.id);
+
+      let results: Record<string, unknown>[];
+      let next: string | null = null;
+      let mode: "list" | "search";
+      if (accountId) {
+        mode = "search";
+        // The search endpoint returns a BARE ARRAY, not {results, next}.
+        const raw = await callVitallyAPI<unknown>(
+          `/resources/customObjects/${coId}/instances/search${buildQuery({ customerId: accountId, limit })}`
+        );
+        results = Array.isArray(raw)
+          ? (raw as Record<string, unknown>[])
+          : ((raw as { results?: Record<string, unknown>[] })?.results ?? []);
+        results = results.slice(0, limit);
+      } else {
+        mode = "list";
+        const page = await paginate<Record<string, unknown>>(
+          `/resources/customObjects/${coId}/instances`,
+          { limit, from }
+        );
+        results = page.results || [];
+        next = page.next;
+      }
+
+      return jsonContent({
+        customObject: { id: schema.id, name: schema.name ?? null, label: schema.label ?? null },
+        mode,
+        count: results.length,
+        results: results.map(r => stripInstanceCustomer(r, includeCustomer)),
+        next,
+      });
+    }
+
+    case "list_meetings": {
+      const accountId = args.accountId as string | undefined;
+      const organizationId = args.organizationId as string | undefined;
+      const limit = (args.limit as number | undefined) ?? 50;
+      const from = args.from as string | undefined;
+      const includeAccount = Boolean(args.includeAccount);
+      const endpoint = accountId
+        ? `/resources/accounts/${encodeURIComponent(accountId)}/meetings`
+        : organizationId
+          ? `/resources/organizations/${encodeURIComponent(organizationId)}/meetings`
+          : "/resources/meetings";
+      const data = await paginate<Record<string, unknown>>(endpoint, { limit, from });
+      return jsonContent({
+        results: (data.results || []).map(r => stripAccountField(r, includeAccount)),
+        next: data.next,
+      });
+    }
+
+    case "get_meeting": {
+      const meetingId = args.meetingId as string | undefined;
+      if (!meetingId) throw new Error("meetingId is required");
+      const includeTranscript = Boolean(args.includeTranscript);
+      const meeting = await callVitallyAPI<Record<string, unknown>>(
+        `/resources/meetings/${encodeURIComponent(meetingId)}`
+      );
+      if (!includeTranscript) return jsonContent(meeting);
+      try {
+        const transcript = await callVitallyAPI<unknown>(
+          `/resources/meetings/${encodeURIComponent(meetingId)}/transcript`
+        );
+        return jsonContent({ ...meeting, transcript });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return jsonContent({ ...meeting, transcript: null, transcriptNote: `No transcript available: ${msg}` });
+      }
+    }
+
+    case "list_nps_responses": {
+      const accountId = args.accountId as string | undefined;
+      const limit = (args.limit as number | undefined) ?? 50;
+      const from = args.from as string | undefined;
+      const includeAccount = Boolean(args.includeAccount);
+      const endpoint = accountId
+        ? `/resources/accounts/${encodeURIComponent(accountId)}/npsResponses`
+        : "/resources/npsResponses";
+      const data = await paginate<Record<string, unknown>>(endpoint, { limit, from });
+      return jsonContent({
+        results: (data.results || []).map(r => stripAccountField(r, includeAccount)),
+        next: data.next,
+      });
+    }
+
+    case "list_survey_responses": {
+      const surveyId = args.surveyId as string | undefined;
+      if (!surveyId) throw new Error("surveyId is required (take it from the survey URL in the Vitally UI)");
+      const limit = (args.limit as number | undefined) ?? 50;
+      const from = args.from as string | undefined;
+      // Response envelope is not documented — normalize bare-array and
+      // {results, next} shapes alike.
+      const raw = await callVitallyAPI<unknown>(
+        `/resources/surveys/${encodeURIComponent(surveyId)}/responses${buildQuery({ limit, from })}`
+      );
+      if (Array.isArray(raw)) {
+        return jsonContent({ results: raw, next: null });
+      }
+      const page = raw as { results?: unknown[]; next?: string | null };
+      return jsonContent({ results: page.results ?? [], next: page.next ?? null });
+    }
+
+    case "get_survey_response": {
+      const responseId = args.responseId as string | undefined;
+      if (!responseId) throw new Error("responseId is required");
+      const data = await callVitallyAPI<unknown>(
+        `/resources/surveyResponses/${encodeURIComponent(responseId)}`
+      );
+      return jsonContent(data);
+    }
+
+    case "list_admins": {
+      const limit = (args.limit as number | undefined) ?? 50;
+      const from = args.from as string | undefined;
+      const data = await paginate<Record<string, unknown>>("/resources/admins", { limit, from });
       return jsonContent(data);
     }
 
