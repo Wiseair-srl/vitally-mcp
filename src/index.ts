@@ -812,6 +812,21 @@ function mockApiResponse<T>(endpoint: string, method = "GET", body?: unknown): T
     } as unknown as T;
   }
 
+  const taskByIdMatch = pathOnly.match(/^\/resources\/tasks\/([^/]+)$/);
+  if (taskByIdMatch && method === "PUT") {
+    const id = decodeURIComponent(taskByIdMatch[1]);
+    const idx = MOCK_TASKS.findIndex(t => t.id === id || t.externalId === id);
+    if (idx === -1) throw new Error(`Vitally API 404 Not Found on PUT ${endpoint}: task not found`);
+    const patch = { ...((body || {}) as Record<string, unknown>) };
+    if (typeof patch.name === "string") {
+      patch.title = patch.name;
+      delete patch.name;
+    }
+    const merged: VitallyTask = { ...MOCK_TASKS[idx], ...patch, updatedAt: new Date().toISOString() };
+    MOCK_TASKS[idx] = merged;
+    return merged as unknown as T;
+  }
+
   if (pathOnly === "/resources/conversations" && method === "GET") {
     return {
       results: [
@@ -1551,6 +1566,28 @@ const TOOL_DEFINITIONS: ToolDef[] = [
         traits: { type: "object", description: "Custom trait key/value pairs." },
       },
       required: ["name"],
+    },
+  },
+  {
+    name: "update_task",
+    description:
+      "Update a task or mark it completed / reopen it. Calls PUT /resources/tasks/:id. `completed: true` sets `completedAt` to now (or to `completedAt` if given); `completed: false` reopens it (clears `completedAt` and `completedById`). Other fields (name, description, assignedToId, dueDate, categoryId, tags, traits) are optional; only the ones passed are changed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        taskId: { type: "string", description: "Vitally task ID. Required." },
+        completed: { type: "boolean", description: "true = mark completed, false = reopen. Omit to leave completion state unchanged." },
+        completedAt: { type: "string", description: "ISO 8601 completion timestamp. Implies completed. Default: now when completed=true." },
+        completedById: { type: "string", description: "Vitally Admin User ID of who completed the task (see list_admins). Optional." },
+        name: { type: "string", description: "New task name / subject." },
+        description: { type: "string", description: "New task description (plain text or HTML)." },
+        assignedToId: { type: "string", description: "Vitally Admin User ID of the new assignee." },
+        dueDate: { type: "string", description: "ISO 8601 due date." },
+        categoryId: { type: "string", description: "Vitally ID of the Task Category." },
+        tags: { type: "array", items: { type: "string" }, description: "Tags (replaces the existing list)." },
+        traits: { type: "object", description: "Custom trait key/value pairs." },
+      },
+      required: ["taskId"],
     },
   },
   {
@@ -2301,6 +2338,39 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
       const created = await callVitallyAPI<VitallyTask>("/resources/tasks", "POST", body);
       return jsonContent({ success: true, task: created });
+    }
+
+    case "update_task": {
+      const taskId = args.taskId as string | undefined;
+      if (!taskId) throw new Error("taskId is required");
+      const completed = args.completed as boolean | undefined;
+      const completedAt = args.completedAt as string | undefined;
+      if (completed === false && completedAt) {
+        throw new Error("completedAt cannot be set together with completed=false");
+      }
+      const body: Record<string, unknown> = {};
+      for (const k of ["name", "description", "assignedToId", "dueDate", "categoryId", "tags", "traits"] as const) {
+        const v = args[k];
+        if (v !== undefined) body[k] = v;
+      }
+      if (completed === true || completedAt) {
+        body.completedAt = completedAt ?? new Date().toISOString();
+        if (args.completedById !== undefined) body.completedById = args.completedById;
+      } else if (completed === false) {
+        body.completedAt = null;
+        body.completedById = null;
+      } else if (args.completedById !== undefined) {
+        body.completedById = args.completedById;
+      }
+      if (Object.keys(body).length === 0) {
+        throw new Error("update_task requires at least one field to change (e.g. completed, name, dueDate)");
+      }
+      const updated = await callVitallyAPI<VitallyTask>(
+        `/resources/tasks/${encodeURIComponent(taskId)}`,
+        "PUT",
+        body
+      );
+      return jsonContent({ success: true, task: updated });
     }
 
     case "get_account_notes": {

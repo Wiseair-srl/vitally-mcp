@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`update_task`** — `PUT /resources/tasks/:id`. Mark a task completed (`completed: true` sets `completedAt` to now, or to the given `completedAt`; optional `completedById`) or reopen it (`completed: false` clears `completedAt` + `completedById`). Also updates `name`, `description`, `assignedToId`, `dueDate`, `categoryId`, `tags`, `traits`; only passed fields are sent. Demo-mode mock + smoke tests included.
+
 ## v2.6.0 — 2026-07-07
 
 ### Added

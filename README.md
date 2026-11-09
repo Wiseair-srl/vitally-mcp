@@ -57,7 +57,7 @@ Without `VITALLY_API_KEY` (or with a placeholder value) the server runs in **dem
 
 **Workspace-level lists** (paginated `{results, next}`) — `list_tasks`, `list_conversations`, `list_notes`, `list_projects`, `list_organizations`.
 
-**Writes** — `create_account_note`, `create_task`, `update_account`.
+**Writes** — `create_account_note`, `create_task`, `update_task` (incl. mark completed / reopen), `update_account`.
 
 **Notes & projects** — `get_note_by_id`, `get_project`.
 

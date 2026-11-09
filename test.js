@@ -140,7 +140,7 @@ async function main() {
     "search_accounts", "find_account_by_name", "get_account", "list_accounts", "update_account",
     "aggregate_accounts",
     "get_account_health", "get_account_conversations", "list_conversations",
-    "get_account_tasks", "list_tasks", "create_task",
+    "get_account_tasks", "list_tasks", "create_task", "update_task",
     "get_account_notes", "list_notes", "get_note_by_id", "create_account_note",
     "list_projects", "get_project", "list_organizations", "refresh_accounts",
     "list_custom_fields", "list_custom_objects", "list_task_categories", "list_note_categories",
@@ -517,6 +517,41 @@ async function main() {
       callTool(ctx, "create_task", { name: "orphan task" }),
       "create_task requires accountId or organizationId",
       /accountId|organizationId/i
+    );
+
+    console.log("\n== update_task: PUT /resources/tasks/:id ==");
+    const completedTask = await callTool(ctx, "update_task", { taskId: "t1", completed: true });
+    check(
+      "update_task completed=true sets completedAt",
+      completedTask?.success === true && typeof completedTask?.task?.completedAt === "string",
+      JSON.stringify(completedTask).slice(0, 200)
+    );
+    const openAfter = await callTool(ctx, "get_account_tasks", { accountId: "4", status: "open" });
+    check(
+      "completed task no longer listed as open",
+      Array.isArray(openAfter?.results) && !openAfter.results.some(t => t.id === "t1"),
+      JSON.stringify(openAfter).slice(0, 200)
+    );
+    const reopened = await callTool(ctx, "update_task", { taskId: "t1", completed: false });
+    check(
+      "update_task completed=false clears completedAt",
+      reopened?.success === true && reopened?.task?.completedAt === null,
+      JSON.stringify(reopened).slice(0, 200)
+    );
+    await expectThrow(
+      callTool(ctx, "update_task", { completed: true }),
+      "update_task requires taskId",
+      /taskId/i
+    );
+    await expectThrow(
+      callTool(ctx, "update_task", { taskId: "t1" }),
+      "update_task requires a field to change",
+      /at least one field/i
+    );
+    await expectThrow(
+      callTool(ctx, "update_task", { taskId: "nope", completed: true }),
+      "update_task on unknown task surfaces 404",
+      /404|not found/i
     );
   }
 
